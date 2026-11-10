@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1e3a8a">
+<title>Quiz-Duell (Test)</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+    background: #111;
+  }
+  #game { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+  .half {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2vh; padding: 3vh 5vw; color: #fff; text-align: center; overflow: hidden;
+  }
+  .top    { transform: rotate(180deg); background: #1e3a8a; }
+  .bottom { background: #c2410c; }
+  .line { height: 4px; background: #fff; opacity: .6; }
+  .score { font-size: 2.6vh; opacity: .9; font-weight: 600; }
+  .question { font-size: 3.4vh; font-weight: 700; line-height: 1.25; max-width: 30em; }
+  .info { font-size: 3vh; opacity: .9; }
+  .buzzer {
+    width: 22vh; height: 22vh; border-radius: 50%; border: 6px solid #fff;
+    background: #fff2; color: #fff; font-size: 3.6vh; font-weight: 800;
+    box-shadow: 0 1vh 0 #0005;
+  }
+  .buzzer:active { transform: translateY(.6vh); box-shadow: 0 .4vh 0 #0005; }
+  .big {
+    padding: 2.2vh 6vw; border-radius: 2vh; border: 4px solid #fff;
+    background: #fff2; color: #fff; font-size: 3.2vh; font-weight: 800;
+  }
+  .options { display: flex; flex-direction: column; gap: 1.4vh; width: 100%; max-width: 28em; }
+  .opt {
+    padding: 1.8vh; border-radius: 1.6vh; border: 3px solid #fff;
+    background: #fff; color: #222; font-size: 2.8vh; font-weight: 700;
+  }
+  .result { font-size: 4vh; font-weight: 800; }
+</style>
+</head>
+<body>
+<div id="game">
+  <section class="half top" data-p="1"></section>
+  <div class="line"></div>
+  <section class="half bottom" data-p="0"></section>
+</div>
+
+<script>
+// ===== Hier kann man Namen und Fragen ändern =====
+const NAMES = ["Orange", "Blau"];   // Spieler unten, Spieler oben
+
+// Die ERSTE Antwort ist immer die richtige (die Reihenfolge wird im Spiel gemischt).
+const QUESTIONS = [
+  { q: "Welches ist das grösste Tier der Welt?", a: ["Blauwal", "Elefant", "Giraffe"] },
+  { q: "Wie viele Beine hat eine Spinne?",       a: ["8", "6", "10"] },
+  { q: "In welcher Stadt sitzt der Bundesrat?",  a: ["Bern", "Zürich", "Genf"] },
+];
+// ==================================================
+
+const halves = [document.querySelector('[data-p="0"]'), document.querySelector('[data-p="1"]')];
+let s;
+
+function reset() {
+  s = { phase: "start", idx: 0, score: [0, 0], answerer: null, options: [], last: null };
+}
+
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+function nextQuestion() {
+  if (s.idx >= QUESTIONS.length) { s.phase = "end"; render(); return; }
+  s.options = shuffle(QUESTIONS[s.idx].a);
+  s.answerer = null;
+  s.phase = "question";
+  render();
+}
+
+// --- Ton und Vibration ---
+let audio;
+function beep(freq, ms) {
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.frequency.value = freq; o.connect(g); g.connect(audio.destination);
+    g.gain.setValueAtTime(0.2, audio.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + ms / 1000);
+    o.start(); o.stop(audio.currentTime + ms / 1000);
+  } catch (e) {}
+  try { navigator.vibrate && navigator.vibrate(60); } catch (e) {}
+}
+
+function esc(t) { return String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function view(p) {
+  const other = 1 - p;
+  const score = `<div class="score">${esc(NAMES[p])} ${s.score[p]} : ${s.score[other]} ${esc(NAMES[other])}</div>`;
+  const q = QUESTIONS[s.idx];
+
+  switch (s.phase) {
+    case "start":
+      return `<div class="question">Quiz-Duell</div>
+              <button class="big" data-action="start">Tippen zum Starten</button>`;
+    case "question":
+      return `${score}<div class="question">${esc(q.q)}</div>
+              <button class="buzzer" data-action="buzz">BUZZ!</button>`;
+    case "answering":
+      if (s.answerer === p) {
+        return `${score}<div class="question">${esc(q.q)}</div>
+                <div class="options">${s.options.map((o, i) =>
+                  `<button class="opt" data-action="answer" data-i="${i}">${esc(o)}</button>`).join("")}</div>`;
+      }
+      return `${score}<div class="question">${esc(q.q)}</div>
+              <div class="info">${esc(NAMES[s.answerer])} war schneller und antwortet …</div>`;
+    case "feedback": {
+      const L = s.last;
+      return `${score}<div class="result">${L.correct ? "✅ Richtig!" : "❌ Falsch!"}</div>
+              <div class="info">${esc(NAMES[L.p])} hat geantwortet.<br>Richtig ist: <b>${esc(L.right)}</b></div>`;
+    }
+    case "end": {
+      const [a, b] = s.score;
+      const msg = a === b ? "Unentschieden!" : (s.score[p] > s.score[other] ? "🏆 Du hast gewonnen!" : "Knapp verloren!");
+      return `${score}<div class="result">${msg}</div>
+              <button class="big" data-action="start">Nochmal</button>`;
+    }
+  }
+}
+
+function render() { halves.forEach((el, p) => el.innerHTML = view(p)); }
+
+document.addEventListener("pointerdown", e => {
+  const btn = e.target.closest("[data-action]");
+  if (!btn) return;
+  e.preventDefault();
+  const p = Number(btn.closest(".half").dataset.p);
+  const action = btn.dataset.action;
+
+  if (action === "start") { reset(); beep(660, 120); nextQuestion(); }
+
+  else if (action === "buzz" && s.phase === "question") {
+    s.answerer = p; s.phase = "answering"; beep(880, 200); render();
+  }
+
+  else if (action === "answer" && s.phase === "answering" && p === s.answerer) {
+    const choice = s.options[Number(btn.dataset.i)];
+    const right = QUESTIONS[s.idx].a[0];
+    const correct = choice === right;
+    s.score[correct ? p : 1 - p]++;
+    s.last = { p, correct, right };
+    s.phase = "feedback";
+    beep(correct ? 1040 : 220, correct ? 250 : 450);
+    render();
+    setTimeout(() => { s.idx++; nextQuestion(); }, 2500);
+  }
+});
+
+reset();
+render();
+</script>
+</body>
+</html>
